@@ -3,10 +3,11 @@ import os
 import platform
 import sys
 from pathlib import Path
-from collections import deque, defaultdict
 
 import torch
+import cv2
 import numpy as np
+from sort import Sort  # Import SORT tracker
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLO root directory
@@ -21,108 +22,60 @@ from utils.general import (LOGGER, Profile, check_file, check_img_size, check_im
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
-data_deque = {}
-palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
-
-
-def compute_color_for_labels(label):
-    color = [int((p * (label ** 2 - label + 1)) % 255) for p in palette]
-    return tuple(color)
-
-def draw_boxes(img, bbox, names, object_id, identities=None, offset=(0, 0)):
-    height, width, _ = img.shape
-
-    for key in list(data_deque):
-        if key not in identities:
-            data_deque.pop(key)
-
-    for i, box in enumerate(bbox):
-        x1, y1, x2, y2 = [int(i) for i in box]
-        x1 += offset[0]
-        x2 += offset[0]
-        y1 += offset[1]
-        y2 += offset[1]
-
-        # code to find center of bottom edge
-        center = (int((x2 + x1) / 2), int((y2 + y2) / 2))
-
-        # get ID of object
-        id = int(identities[i]) if identities is not None else 0
-
-        # create new buffer for new object
-        if id not in data_deque:
-            data_deque[id] = deque(maxlen=64)
-
-        color = compute_color_for_labels(object_id[i])
-        obj_name = names.get(object_id[i], f"Unknown_{object_id[i]}")
-        label = '{}{:d}'.format("", id) + ":" + '%s' % (obj_name)
-
-        # add center to buffer
-        data_deque[id].appendleft(center)
-
-        # draw trail
-        for i in range(1, len(data_deque[id])):
-            # check if on buffer value is none
-            if data_deque[id][i - 1] is None or data_deque[id][i] is None:
-                continue
-            # generate dynamic thickness of trails
-            thickness = int(np.sqrt(64 / float(i + i)) * 1.5)
-            # draw trails
-            cv2.line(img, data_deque[id][i - 1], data_deque[id][i], color, thickness)
-
-    return img
-
 @smart_inference_mode()
 def run(
-        weights=ROOT / 'yolo.pt',  # model path or triton URL
-        source=ROOT / 'data/images',  # file/dir/URL/glob/screen/0(webcam)
-        data=ROOT / 'data/coco.yaml',  # dataset.yaml path
-        imgsz=(640, 640),  # inference size (height, width)
-        conf_thres=0.25,  # confidence threshold
-        iou_thres=0.45,  # NMS IOU threshold
-        max_det=1000,  # maximum detections per image
-        device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
-        view_img=False,  # show results
-        save_txt=False,  # save results to *.txt
-        save_conf=False,  # save confidences in --save-txt labels
-        save_crop=False,  # save cropped prediction boxes
-        nosave=False,  # do not save images/videos
-        classes=None,  # filter by class: --class 0, or --class 0 2 3
-        agnostic_nms=False,  # class-agnostic NMS
-        augment=False,  # augmented inference
-        visualize=False,  # visualize features
-        update=False,  # update all models
-        project=ROOT / 'runs/detect',  # save results to project/name
-        name='exp',  # save results to project/name
-        exist_ok=False,  # existing project/name ok, do not increment
-        line_thickness=3,  # bounding box thickness (pixels)
-        hide_labels=False,  # hide labels
-        hide_conf=False,  # hide confidences
-        half=False,  # use FP16 half-precision inference
-        dnn=False,  # use OpenCV DNN for ONNX inference
-        vid_stride=1,  # video frame-rate stride
+        weights=ROOT / 'yolo.pt',
+        source=ROOT / 'data/images',
+        data=ROOT / 'data/coco.yaml',
+        imgsz=(640, 640),
+        conf_thres=0.25,
+        iou_thres=0.45,
+        max_det=1000,
+        device='',
+        view_img=False,
+        save_txt=False,
+        save_conf=False,
+        save_crop=False,
+        nosave=False,
+        classes=None,
+        agnostic_nms=False,
+        augment=False,
+        visualize=False,
+        update=False,
+        project=ROOT / 'runs/detect',
+        name='exp',
+        exist_ok=False,
+        line_thickness=3,
+        hide_labels=False,
+        hide_conf=False,
+        half=False,
+        dnn=False,
+        vid_stride=1,
 ):
     source = str(source)
-    save_img = not nosave and not source.endswith('.txt')  # save inference images
+    save_img = not nosave and not source.endswith('.txt')
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
     is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
     webcam = source.isnumeric() or source.endswith('.txt') or (is_url and not is_file)
     screenshot = source.lower().startswith('screen')
     if is_url and is_file:
-        source = check_file(source)  # download
+        source = check_file(source)
+
+    # Initialize SORT tracker
+    tracker = Sort(max_age=100, min_hits=3, iou_threshold=0.3)
 
     # Directories
-    save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
-    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)
+    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)
 
     # Load model
     device = select_device(device)
     model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
     stride, names, pt = model.stride, model.names, model.pt
-    imgsz = check_img_size(imgsz, s=stride)  # check image size
+    imgsz = check_img_size(imgsz, s=stride)
 
     # Dataloader
-    bs = 1  # batch_size
+    bs = 1
     if webcam:
         view_img = check_imshow(warn=True)
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
@@ -133,20 +86,16 @@ def run(
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
     vid_path, vid_writer = [None] * bs, [None] * bs
 
-    # Initialize object tracking
-    object_id = 0
-    object_count = defaultdict(int)
-
     # Run inference
-    model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
+    model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
             im = torch.from_numpy(im).to(model.device)
-            im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
-            im /= 255  # 0 - 255 to 0.0 - 1.0
+            im = im.half() if model.fp16 else im.float()
+            im /= 255
             if len(im.shape) == 3:
-                im = im[None]  # expand for batch dim
+                im = im[None]
 
         # Inference
         with dt[1]:
@@ -158,60 +107,57 @@ def run(
             pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
 
         # Process predictions
-        for i, det in enumerate(pred):  # per image
+        for i, det in enumerate(pred):
             seen += 1
-            if webcam:  # batch_size >= 1
+            if webcam:
                 p, im0, frame = path[i], im0s[i].copy(), dataset.count
                 s += f'{i}: '
             else:
                 p, im0, frame = path, im0s.copy(), getattr(dataset, 'frame', 0)
 
-            p = Path(p)  # to Path
-            save_path = str(save_dir / p.name)  # im.jpg
-            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')  # im.txt
-            s += '%gx%g ' % im.shape[2:]  # print string
-            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-            imc = im0.copy() if save_crop else im0  # for save_crop
+            p = Path(p)
+            save_path = str(save_dir / p.name)
+            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')
+            s += '%gx%g ' % im.shape[2:]
+            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]
+            imc = im0.copy() if save_crop else im0
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
 
-                # Print results
-                for c in det[:, 5].unique():
-                    n = (det[:, 5] == c).sum()  # detections per class
-                    s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
+                # Convert detections to SORT format and update tracker
+                detections = det[:, :5].cpu().numpy()
+                tracked_objects = tracker.update(detections)
 
-                # Write results
-                for *xyxy, conf, cls in reversed(det):
-                    c = int(cls)  # integer class
-                    object_count[c] += 1
-                    object_id = object_count[c]
+                # Process tracked objects
+                for *xyxy, obj_id, cls in tracked_objects:
+                    c = int(cls)
+                    label = f'{names[c]} {obj_id}'
+                    confidence = det[det[:, 5] == cls][0, 4].item()
 
-                    if save_txt:  # Write to file
-                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                        line = (cls, *xywh, conf, object_id) if save_conf else (cls, *xywh, object_id)  # label format
+                    if save_txt:
+                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()
+                        line = (cls, *xywh, confidence, obj_id) if save_conf else (cls, *xywh, obj_id)
                         with open(f'{txt_path}.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
-                    if save_img or save_crop or view_img:  # Add bbox to image
-                        label = None if hide_labels else (
-                            f'{object_id}:{names[c]}' if hide_conf else f'{object_id}:{names[c]} {conf:.2f}')
+                    if save_img or save_crop or view_img:
+                        c = int(cls)
+                        label = None if hide_labels else (label if hide_conf else f'{label} {confidence:.2f}')
                         annotator.box_label(xyxy, label, color=colors(c, True))
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
-
-                im0 = draw_boxes(im0, det[:, :4].cpu().numpy(), names, det[:, 5].cpu().numpy().astype(int), identities=[object_count[int(c)] for c in det[:, 5]])
 
             # Stream results
             im0 = annotator.result()
             if view_img:
                 if platform.system() == 'Linux' and p not in windows:
                     windows.append(p)
-                    cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
+                    cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
                     cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
                 cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
+                cv2.waitKey(1)
 
             # Save results (image with detections)
             if save_img:
@@ -243,7 +189,6 @@ def run(
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
         strip_optimizer(weights[0])  # update model (to fix SourceChangeWarning)
-
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -279,11 +224,8 @@ def parse_opt():
     print_args(vars(opt))
     return opt
 
-
 def main(opt):
-    # check_requirements(exclude=('tensorboard', 'thop'))
     run(**vars(opt))
-
 
 if __name__ == "__main__":
     opt = parse_opt()

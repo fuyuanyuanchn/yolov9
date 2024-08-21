@@ -3,8 +3,10 @@ import os
 import platform
 import sys
 from pathlib import Path
+from collections import deque, defaultdict
 
 import torch
+import numpy as np
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLO root directory
@@ -19,6 +21,56 @@ from utils.general import (LOGGER, Profile, check_file, check_img_size, check_im
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
+data_deque = {}
+palette = (2 ** 11 - 1, 2 ** 15 - 1, 2 ** 20 - 1)
+
+
+def compute_color_for_labels(label):
+    color = [int((p * (label ** 2 - label + 1)) % 255) for p in palette]
+    return tuple(color)
+
+def draw_boxes(img, bbox, names, object_id, identities=None, offset=(0, 0)):
+    height, width, _ = img.shape
+
+    for key in list(data_deque):
+        if key not in identities:
+            data_deque.pop(key)
+
+    for i, box in enumerate(bbox):
+        x1, y1, x2, y2 = [int(i) for i in box]
+        x1 += offset[0]
+        x2 += offset[0]
+        y1 += offset[1]
+        y2 += offset[1]
+
+        # code to find center of bottom edge
+        center = (int((x2 + x1) / 2), int((y2 + y2) / 2))
+
+        # get ID of object
+        id = int(identities[i]) if identities is not None else 0
+
+        # create new buffer for new object
+        if id not in data_deque:
+            data_deque[id] = deque(maxlen=64)
+
+        color = compute_color_for_labels(object_id[i])
+        obj_name = names[object_id[i]]
+        label = '{}{:d}'.format("", id) + ":" + '%s' % (obj_name)
+
+        # add center to buffer
+        data_deque[id].appendleft(center)
+
+        # draw trail
+        for i in range(1, len(data_deque[id])):
+            # check if on buffer value is none
+            if data_deque[id][i - 1] is None or data_deque[id][i] is None:
+                continue
+            # generate dynamic thickness of trails
+            thickness = int(np.sqrt(64 / float(i + i)) * 1.5)
+            # draw trails
+            cv2.line(img, data_deque[id][i - 1], data_deque[id][i], color, thickness)
+
+    return img
 
 @smart_inference_mode()
 def run(
@@ -81,6 +133,10 @@ def run(
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
     vid_path, vid_writer = [None] * bs, [None] * bs
 
+    # Initialize object tracking
+    object_id = 0
+    object_count = defaultdict(int)
+
     # Run inference
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
@@ -100,9 +156,6 @@ def run(
         # NMS
         with dt[2]:
             pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
-
-        # Second-stage classifier (optional)
-        # pred = utils.general.apply_classifier(pred, classifier_model, im, im0s)
 
         # Process predictions
         for i, det in enumerate(pred):  # per image
@@ -131,18 +184,25 @@ def run(
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
+                    c = int(cls)  # integer class
+                    object_count[c] += 1
+                    object_id = object_count[c]
+
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                        line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
+                        line = (cls, *xywh, conf, object_id) if save_conf else (cls, *xywh, object_id)  # label format
                         with open(f'{txt_path}.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
                     if save_img or save_crop or view_img:  # Add bbox to image
-                        c = int(cls)  # integer class
-                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                        label = None if hide_labels else (
+                            f'{object_id}:{names[c]}' if hide_conf else f'{object_id}:{names[c]} {conf:.2f}')
                         annotator.box_label(xyxy, label, color=colors(c, True))
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
+
+                im0 = draw_boxes(im0, det[:, :4].cpu(), names, det[:, 5].cpu(), identities=[object_count[int(c)] for c in det[:, 5]])
+
 
             # Stream results
             im0 = annotator.result()
@@ -222,10 +282,4 @@ def parse_opt():
 
 
 def main(opt):
-    # check_requirements(exclude=('tensorboard', 'thop'))
-    run(**vars(opt))
-
-
-if __name__ == "__main__":
-    opt = parse_opt()
-    main(opt)
+    run(**vars

@@ -54,7 +54,7 @@ def draw_boxes(img, bbox, names, object_id, identities=None, offset=(0, 0)):
             data_deque[id] = deque(maxlen=64)
 
         color = compute_color_for_labels(object_id[i])
-        obj_name = names[object_id[i]]
+        obj_name = names.get(object_id[i], f"Unknown_{object_id[i]}")
         label = '{}{:d}'.format("", id) + ":" + '%s' % (obj_name)
 
         # add center to buffer
@@ -201,8 +201,7 @@ def run(
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
-                im0 = draw_boxes(im0, det[:, :4].cpu(), names, det[:, 5].cpu(), identities=[object_count[int(c)] for c in det[:, 5]])
-
+                im0 = draw_boxes(im0, det[:, :4].cpu().numpy(), names, det[:, 5].cpu().numpy().astype(int), identities=[object_count[int(c)] for c in det[:, 5]])
 
             # Stream results
             im0 = annotator.result()

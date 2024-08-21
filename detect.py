@@ -282,4 +282,10 @@ def parse_opt():
 
 
 def main(opt):
-    run(**vars
+    # check_requirements(exclude=('tensorboard', 'thop'))
+    run(**vars(opt))
+
+
+if __name__ == "__main__":
+    opt = parse_opt()
+    main(opt)

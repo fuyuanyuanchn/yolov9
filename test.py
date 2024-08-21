@@ -1,36 +1,37 @@
 import cv2
 
-from ultralytics import YOLO
+from ultralytics import YOLO, solutions
 
-# Load the YOLOv8 model
 model = YOLO("yolov8n.pt")
+cap = cv2.VideoCapture("path/to/video/file.mp4")
+assert cap.isOpened(), "Error reading video file"
+w, h, fps = (int(cap.get(x)) for x in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS))
 
-# Open the video file
-video_path = "path/to/video.mp4"
-cap = cv2.VideoCapture(video_path)
+line_points = [(20, 400), (1080, 400)]  # line or region points
+classes_to_count = [0, 2]  # person and car classes for count
 
-# Loop through the video frames
+# Video writer
+video_writer = cv2.VideoWriter("object_counting_output.avi", cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+
+# Init Object Counter
+counter = solutions.ObjectCounter(
+    view_img=True,
+    reg_pts=line_points,
+    names=model.names,
+    draw_tracks=True,
+    line_thickness=2,
+)
+
 while cap.isOpened():
-    # Read a frame from the video
-    success, frame = cap.read()
-
-    if success:
-        # Run YOLOv8 tracking on the frame, persisting tracks between frames
-        results = model.track(frame, persist=True)
-
-        # Visualize the results on the frame
-        annotated_frame = results[0].plot()
-
-        # Display the annotated frame
-        cv2.imshow("YOLOv8 Tracking", annotated_frame)
-
-        # Break the loop if 'q' is pressed
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-    else:
-        # Break the loop if the end of the video is reached
+    success, im0 = cap.read()
+    if not success:
+        print("Video frame is empty or video processing has been successfully completed.")
         break
+    tracks = model.track(im0, persist=True, show=False, classes=classes_to_count)
 
-# Release the video capture object and close the display window
+    im0 = counter.start_counting(im0, tracks)
+    video_writer.write(im0)
+
 cap.release()
+video_writer.release()
 cv2.destroyAllWindows()

@@ -3,7 +3,6 @@ import os
 import platform
 import sys
 from pathlib import Path
-from sort import Sort
 
 import torch
 
@@ -20,7 +19,6 @@ from utils.general import (LOGGER, Profile, check_file, check_img_size, check_im
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
-tracker = Sort()
 
 @smart_inference_mode()
 def run(
@@ -86,7 +84,6 @@ def run(
     # Run inference
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
-
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
             im = torch.from_numpy(im).to(model.device)
@@ -110,10 +107,8 @@ def run(
         round_snail_count = 0
         conical_snail_count = 0
 
-        tracked_objects = tracker.update(pred[0].cpu().numpy())
-
         # Process predictions
-        for i, det in enumerate(tracked_objects):  # per image
+        for i, det in enumerate(pred):  # per image
             seen += 1
             if webcam:  # batch_size >= 1
                 p, im0, frame = path[i], im0s[i].copy(), dataset.count
@@ -128,18 +123,34 @@ def run(
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if save_crop else im0  # for save_crop
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
+            if len(det):
+                # Rescale boxes from img_size to im0 size
+                det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
 
-            for *xyxy, track_id, conf, cls in reversed(tracked_objects):
-                label = None if hide_labels else (
-                    f'ID {int(track_id)} {names[int(cls)]} {conf:.2f}' if not hide_conf else f'ID {int(track_id)} {names[int(cls)]}')
-                annotator.box_label(xyxy, label, color=colors(int(cls), True))
+                # Print results
+                for c in det[:, 5].unique():
+                    n = (det[:, 5] == c).sum()  # detections per class
+                    s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
-                # Add text of ID to the image
-                cv2.putText(img=im0, text=f'ID: {int(track_id)}', org=(int(xyxy[0]), int(xyxy[1]) - 10),
-                            fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, color=(0, 0, 255), thickness=3)
+                # Write results
+                for *xyxy, conf, cls in reversed(det):
+                    if save_txt:  # Write to file
+                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                        line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
+                        with open(f'{txt_path}.txt', 'a') as f:
+                            f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
-                if save_crop:
-                    save_one_box(xyxy, imc, file=save_dir / 'crops' / names[int(cls)] / f'{p.stem}.jpg', BGR=True)
+                    if save_img or save_crop or view_img:  # Add bbox to image
+                        c = int(cls)  # integer class
+                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                        annotator.box_label(xyxy, label, color=colors(c, True))
+                    if save_crop:
+                        save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
+
+                    if names[int(cls)] == 'round snail':
+                        round_snail_count += 1
+                    elif names[int(cls)] == 'conical snail':
+                        conical_snail_count += 1
 
             # Stream results
             im0 = annotator.result()

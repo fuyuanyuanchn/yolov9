@@ -12,9 +12,7 @@ w, h, fps = (int(cap.get(x)) for x in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FR
 # Video writer
 video_writer = cv2.VideoWriter("snail_counting_output.avi", cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
-# Initialize counters and track history
-snail_counts = defaultdict(int)
-counted_ids = set()
+# Initialize track history
 track_history = defaultdict(lambda: [])
 
 # Define colors for different classes
@@ -36,6 +34,9 @@ while cap.isOpened():
 
     results = model.track(im0, persist=True, show=False)
 
+    # Reset counts for each frame
+    snail_counts = defaultdict(int)
+
     if results[0].boxes.id is not None:
         boxes = results[0].boxes.xywh.cpu()
         track_ids = results[0].boxes.id.int().cpu().tolist()
@@ -47,9 +48,8 @@ while cap.isOpened():
         for box, track_id, cls, conf in zip(boxes, track_ids, clss, confs):
             class_name = results[0].names[int(cls)]
             if class_name in ["round snail", "conical snail"]:
-                if track_id not in counted_ids:
-                    snail_counts[class_name] += 1
-                    counted_ids.add(track_id)
+                # Increment count for this class in the current frame
+                snail_counts[class_name] += 1
 
                 # Draw bounding box
                 x, y, w, h = box
@@ -74,7 +74,7 @@ while cap.isOpened():
 
                 print(f"Drew box and trajectory for {label} at ({x1}, {y1}, {x2}, {y2})")
 
-    # Display counts
+    # Display counts for the current frame
     cv2.putText(im0, f"Round Snails: {snail_counts['round snail']}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1,
                 class_colors['round snail'], 2)
     cv2.putText(im0, f"Conical Snails: {snail_counts['conical snail']}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1,
@@ -91,6 +91,4 @@ cap.release()
 video_writer.release()
 cv2.destroyAllWindows()
 
-print("Final counts:")
-print(f"Round Snails: {snail_counts['round snail']}")
-print(f"Conical Snails: {snail_counts['conical snail']}")
+print("Video processing completed.")

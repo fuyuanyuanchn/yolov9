@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 from ultralytics import YOLO
 from collections import defaultdict
 
@@ -8,9 +9,6 @@ cap = cv2.VideoCapture("kisisayma.MP4")
 assert cap.isOpened(), "Error reading video file"
 w, h, fps = (int(cap.get(x)) for x in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS))
 
-# Define region points
-region_points = [(20, 400), (1080, 404), (1080, 360), (20, 360)]
-
 # Video writer
 video_writer = cv2.VideoWriter("snail_counting_output.avi", cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
@@ -18,29 +16,16 @@ video_writer = cv2.VideoWriter("snail_counting_output.avi", cv2.VideoWriter_four
 snail_counts = defaultdict(int)
 counted_ids = set()
 
-
-def point_in_polygon(x, y, polygon):
-    n = len(polygon)
-    inside = False
-    p1x, p1y = polygon[0]
-    for i in range(n + 1):
-        p2x, p2y = polygon[i % n]
-        if y > min(p1y, p2y):
-            if y <= max(p1y, p2y):
-                if x <= max(p1x, p2x):
-                    if p1y != p2y:
-                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
-                    if p1x == p2x or x <= xinters:
-                        inside = not inside
-        p1x, p1y = p2x, p2y
-    return inside
-
+frame_count = 0
 
 while cap.isOpened():
     success, im0 = cap.read()
     if not success:
         print("Video frame is empty or video processing has been successfully completed.")
         break
+
+    frame_count += 1
+    print(f"Processing frame {frame_count}")
 
     results = model.track(im0, persist=True, show=False)
 
@@ -49,22 +34,34 @@ while cap.isOpened():
         track_ids = results[0].boxes.id.int().cpu().tolist()
         clss = results[0].boxes.cls.cpu().tolist()
 
+        print(f"Detected {len(boxes)} objects in frame {frame_count}")
+
         for box, track_id, cls in zip(boxes, track_ids, clss):
-            x, y, w, h = box
-            if point_in_polygon(x, y, region_points) and track_id not in counted_ids:
+            if track_id not in counted_ids:
                 class_name = results[0].names[int(cls)]
                 if class_name in ["round snail", "conical snail"]:
                     snail_counts[class_name] += 1
                     counted_ids.add(track_id)
 
-    # Draw the region
-    cv2.polylines(im0, [np.array(region_points, np.int32)], True, (0, 255, 0), 2)
+            # Draw bounding box
+            x, y, w, h = box
+            x1, y1 = int(x - w / 2), int(y - h / 2)
+            x2, y2 = int(x + w / 2), int(y + h / 2)
+            cv2.rectangle(im0, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(im0, f"{class_name} {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+            print(f"Drew box for {class_name} {track_id} at ({x1}, {y1}, {x2}, {y2})")
 
     # Display counts
     cv2.putText(im0, f"Round Snails: {snail_counts['round snail']}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
                 2)
     cv2.putText(im0, f"Conical Snails: {snail_counts['conical snail']}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1,
                 (0, 255, 0), 2)
+
+    # Display the image
+    cv2.imshow("Snail Counting", im0)
+    if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to exit
+        break
 
     video_writer.write(im0)
 

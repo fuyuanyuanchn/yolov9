@@ -1,1 +1,1 @@
-ffmpeg -framerate 30 -pattern_type glob -i "/home/jinan/Desktop/yolov9_31_07_2024/20240508_YOLO_Full/test/*.jpg" -c:v libx264 -pix_fmt yuv420p output.mp4
+ffmpeg -framerate 30 -pattern_type glob -i "/home/jinan/Desktop/yolov9_31_07_2024/20240508_YOLO_Full/test/images/*.jpg" -c:v mpeg4 -q:v 1 -pix_fmt yuv420p output.mp4

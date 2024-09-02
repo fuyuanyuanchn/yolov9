@@ -261,6 +261,7 @@ def run(
 
             with open(det_txt_path, 'w') as det_file:
                 if len(det):
+                    LOGGER.info(f"len(det) = {len(det)}")
                     # Rescale boxes from img_size to im0 size
                     det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
 
@@ -272,15 +273,19 @@ def run(
                     # Write results
                     for *xyxy, conf, cls in reversed(det):
                         if save_txt:  # Write to file
+                            LOGGER.info(f"save_txt = {save_txt}")
                             xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                             line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
 
                             # write to the detection txt file
                             detection_info = f'Object id: {int(cls)}, Bounding box: {xywh}, Confidence: {conf:.2f}\n'
-                            det_file.write(detection_info)
-                            LOGGER.info(f"Wrote detection: {detection_info.strip()}")
+                            LOGGER.info(f"write detection: {detection_info.strip()}")
 
-                        if save_img or save_crop or view_img:  # Add bbox to image
+                            if save_txt:
+                                det_file.write(detection_info)
+
+                    if save_img or save_crop or view_img:  # Add bbox to image
+                            LOGGER.info(f"save_crop = {save_crop}, view_img = {view_img}")
                             c = int(cls)  # integer class
                             xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4))).view(-1).tolist()  ## move to yolov10
                             oids.append(c)  ## move to yolov10
@@ -291,6 +296,7 @@ def run(
                             # annotator.box_label(xyxy, label, color=colors(c, True))
 
                         if save_crop:
+                            LOGGER.info(f"save_crop = {save_crop}")
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
                         if names[int(cls)] == 'round snail':

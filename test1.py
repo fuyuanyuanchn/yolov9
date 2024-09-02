@@ -250,17 +250,16 @@ def run(
             imc = im0.copy() if save_crop else im0  # for save_crop
             annotator = Annotator(im0, line_width=line_thickness, example=str(names))
 
-            xywh_bboxs=[]## move to yolov10
-            confs=[]## move to yolov10
-            oids=[]## move to yolov10
-            outputs=[]## move to yolov10
+            xywh_bboxs = []  ## move to yolov10
+            confs = []  ## move to yolov10
+            oids = []  ## move to yolov10
+            outputs = []  ## move to yolov10
 
-            # create a new file for each image
-            det_txt_path = str(detections_dir /f'{p.stem}_detection.txt')
+            # Create a new detection file for each image
+            det_txt_path = str(detections_dir / f'{p.stem}_detection.txt')
             LOGGER.info(f"Attempting to write detections to {det_txt_path}")
 
             with open(det_txt_path, 'w') as det_file:
-            
                 if len(det):
                     # Rescale boxes from img_size to im0 size
                     det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
@@ -281,21 +280,16 @@ def run(
                             det_file.write(detection_info)
                             LOGGER.info(f"Wrote detection: {detection_info.strip()}")
 
-                            with open(f'{txt_path}.txt', 'a') as f:
-                                f.write(('%g ' * len(line)).rstrip() % line + '\n')
-
                         if save_img or save_crop or view_img:  # Add bbox to image
-
                             c = int(cls)  # integer class
-                            xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) ).view(-1).tolist() ## move to yolov10
-                            oids.append(c)## move to yolov10
-                            #print(xywh)
-                            xywh_bboxs.append(xywh)## move to yolov10
-                            #print(len(xywh_bboxs))
-                            confs.append([conf.item()])## move to yolov10
-                            
+                            xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4))).view(-1).tolist()  ## move to yolov10
+                            oids.append(c)  ## move to yolov10
+                            xywh_bboxs.append(xywh)  ## move to yolov10
+                            confs.append([conf.item()])  ## move to yolov10
+
                             label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
                             # annotator.box_label(xyxy, label, color=colors(c, True))
+
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
@@ -305,18 +299,18 @@ def run(
                             conical_snail_count += 1
                 else:
                     LOGGER.info(f"No detections found for image {p.stem}")
-            xywhs=torch.tensor(xywh_bboxs)## move to yolov10
-            confss = torch.Tensor(confs)## move to yolov10
 
-            outputs = deepsort.update(xywhs,confss,oids,im0)## move to yolov10
+            xywhs = torch.tensor(xywh_bboxs)  ## move to yolov10
+            confss = torch.Tensor(confs)  ## move to yolov10
+
+            outputs = deepsort.update(xywhs, confss, oids, im0)  ## move to yolov10
+
             # Stream results
-            if len(outputs) > 0:## move to yolov10
-                
-                    bbox_xyxy = outputs[:, :4]## move to yolov10
-                    identities = outputs[:, -2]## move to yolov10
-                    object_id = outputs[:, -1]## move to yolov10
-                    # print()
-                    draw_boxes(im0, bbox_xyxy, names, object_id,identities)## move to yolov10
+            if len(outputs) > 0:  ## move to yolov10
+                bbox_xyxy = outputs[:, :4]  ## move to yolov10
+                identities = outputs[:, -2]  ## move to yolov10
+                object_id = outputs[:, -1]  ## move to yolov10
+                draw_boxes(im0, bbox_xyxy, names, object_id, identities)  ## move to yolov10
 
             im0 = annotator.result()
             if view_img:
@@ -327,8 +321,10 @@ def run(
                 cv2.imshow(str(p), im0)
                 cv2.waitKey(1)  # 1 millisecond
 
-            cv2.putText(img=im0, text=f'round snail: {round_snail_count}', org=(40,50), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=2, color=(255,255,255), thickness=3)
-            cv2.putText(img=im0, text=f'conical snail: {conical_snail_count}', org=(40,100), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=2, color=(255,255,255), thickness=3)
+            cv2.putText(img=im0, text=f'round snail: {round_snail_count}', org=(40, 50),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=2, color=(255, 255, 255), thickness=3)
+            cv2.putText(img=im0, text=f'conical snail: {conical_snail_count}', org=(40, 100),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=2, color=(255, 255, 255), thickness=3)
 
             # Save results (image with detections)
             if save_img:
@@ -348,7 +344,7 @@ def run(
                         save_path = str(Path(save_path).with_suffix('.mp4'))  # force *.mp4 suffix on results videos
                         vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
                     vid_writer[i].write(im0)
-                    
+
             snail_counts.append((p.name, round_snail_count, conical_snail_count))
 
         # Print time (inference-only)

@@ -291,7 +291,7 @@ def run(
                             class_name = "round snail" if c == 0 else "conical snail"
                             detection_info = f'{class_name}, Bounding box: {xywh}, Confidence: {conf:.2f}\n'
                             detection_info_list.append(detection_info)
-                            det_file.write(detection_info + '\n')
+                            det_file.write(detection_info)
                             LOGGER.info(f"write detection: {detection_info}")
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
@@ -318,14 +318,18 @@ def run(
                 updated_detection_info_list = []
                 for j, box in enumerate(bbox_xyxy):
                     id = int(identities[j]) if identities is not None else 0
-                    original_info = detection_info_list[j]
-                    updated_info = f'Object ID: {id}, ' + original_info
+                    c = int(object_id[j])
+                    class_name = "round snail" if c == 0 else "conical snail"
+                    xywh = (xyxy2xywh(torch.tensor(box).view(1, 4)) / gn).view(-1).tolist()
+                    conf = confss[j].item()
+
+                    updated_info = f'Object ID: {id}, {class_name}, Bounding box: {xywh}, Confidence: {conf:.2f}\n'
                     updated_detection_info_list.append(updated_info)
 
                 with open(det_txt_path, 'w') as det_file:
                     for updated_info in updated_detection_info_list:
-                        det_file.write(updated_info + '\n')
-                        LOGGER.info(f"write updated detection: {updated_info}")
+                        det_file.write(updated_info)
+                        LOGGER.info(f"write updated detection: {updated_info.strip()}")
 
             im0 = annotator.result()
             if view_img:

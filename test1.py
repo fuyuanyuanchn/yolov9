@@ -255,6 +255,8 @@ def run(
             oids = []  ## move to yolov10
             outputs = []  ## move to yolov10
 
+            detection_info_list = []
+
             # Create a new detection file for each image
             det_txt_path = str(detections_dir / f'{p.stem}_detection.txt')
             LOGGER.info(f"Attempting to write detections to {det_txt_path}")
@@ -286,10 +288,11 @@ def run(
                             # annotator.box_label(xyxy, label, color=colors(c, True))
 
                             # write to the detection txt file
-                            detection_info = f'Object id: {c}, Bounding box: {xywh}, Confidence: {conf:.2f}\n'
-                            det_file.write(detection_info)
-                            LOGGER.info(f"write detection: {detection_info.strip()}")
-
+                            class_name = "round snail" if c == 0 else "conical snail"
+                            detection_info = f'{class_name}, Bounding box: {xywh}, Confidence: {conf:.2f}\n'
+                            detection_info_list.append(detection_info)
+                            det_file.write(detection_info + '\n')
+                            LOGGER.info(f"write detection: {detection_info}")
                         if save_crop:
                             save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
@@ -311,6 +314,18 @@ def run(
                 identities = outputs[:, -2]  ## move to yolov10
                 object_id = outputs[:, -1]  ## move to yolov10
                 draw_boxes(im0, bbox_xyxy, names, object_id, identities)  ## move to yolov10
+
+                updated_detection_info_list = []
+                for j, box in enumerate(bbox_xyxy):
+                    id = int(identities[j]) if identities is not None else 0
+                    original_info = detection_info_list[j]
+                    updated_info = f'Object ID: {id}, ' + original_info
+                    updated_detection_info_list.append(updated_info)
+
+                with open(det_txt_path, 'w') as det_file:
+                    for updated_info in updated_detection_info_list:
+                        det_file.write(updated_info + '\n')
+                        LOGGER.info(f"write updated detection: {updated_info}")
 
             im0 = annotator.result()
             if view_img:

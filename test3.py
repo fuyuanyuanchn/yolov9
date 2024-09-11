@@ -1,4 +1,3 @@
-
 def UI_box(self, img, box, label='', color=(128, 128, 128), line_thickness=3):
     # Plots one bounding box on image img
     tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
@@ -6,21 +5,20 @@ def UI_box(self, img, box, label='', color=(128, 128, 128), line_thickness=3):
 
     try:
         if isinstance(box, np.ndarray):
-            if box.ndim == 2 and box.shape[0] == 1:
+            if box.ndim == 1 and len(box) == 4:
+                # If box is a 1D array with 4 elements, use it directly
+                c1, c2 = tuple(map(int, box[:2])), tuple(map(int, box[2:]))
+            elif box.ndim == 2 and box.shape[0] == 1 and box.shape[1] == 4:
                 # If box is a 2D array with only one row, flatten it
                 box = box.flatten()
-            elif box.ndim > 2 or (box.ndim == 2 and box.shape[0] != 1):
+                c1, c2 = tuple(map(int, box[:2])), tuple(map(int, box[2:]))
+            else:
                 raise ValueError(f"Unexpected box shape: {box.shape}")
-
-            c1 = tuple(map(int, box[:2]))
-            c2 = tuple(map(int, box[2:4]))
-        elif isinstance(box, (list, tuple)):
-            c1 = (int(box[0]), int(box[1]))
-            c2 = (int(box[2]), int(box[3]))
+        elif isinstance(box, (list, tuple)) and len(box) == 4:
+            c1, c2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
         elif isinstance(box, torch.Tensor):
             box = box.cpu().numpy()
-            c1 = tuple(map(int, box[:2]))
-            c2 = tuple(map(int, box[2:4]))
+            c1, c2 = tuple(map(int, box[:2])), tuple(map(int, box[2:]))
         else:
             raise TypeError(f"Unsupported box type: {type(box)}")
 
@@ -34,5 +32,6 @@ def UI_box(self, img, box, label='', color=(128, 128, 128), line_thickness=3):
     except Exception as e:
         print(f"Error in UI_box: {e}")
         print(f"Box: {box}")
+        raise
 
     return img
